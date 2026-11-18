@@ -1,1 +1,130 @@
-*{margin:0;padding:0;border:0}body{background:#000;font-family:sans-serif;position:relative;width:100%;height:100vh}#ct{position:relative;display:inline-block;width:100%;height:100%}.ct-aLoadingScreen{position:absolute;left:0;right:0;top:0;bottom:0;background:#446adb;background:#8a44db;color:#fff;z-index:2}.ct-aLoadingProgress{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:1.5rem;font-style:italic;padding:1rem 2rem;text-align:center}.ct-aLoadingBar{content:'';height:.2rem;border-radius:1rem;position:absolute;background:#446adb;background:#fff;left:0;bottom:0;transition:1s cubic-bezier(.31,.59,.29,1) width}.ct-aMadeWithImage{margin-bottom:1rem}.ct-aMadeWithImage svg{width:33vw;height:auto}.ct-aLoadingScreen.hidden{visibility:hidden;display:none}@font-face{font-family:alagard;src:url(fonts/f79MhM4HRTJDj4h.ttf.woff) format('woff'),url(fonts/f79MhM4HRTJDj4h.ttf) format('truetype')}@font-face{font-family:Retro Gaming;src:url(fonts/fhz3jdkRWWBcNPP.ttf.woff) format('woff'),url(fonts/fhz3jdkRWWBcNPP.ttf) format('truetype')}
+*{
+    margin: 0;
+    padding: 0;
+    border: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: radial-gradient(ellipse at center, #140b24 0%, #07040e 58%, #020105 100%);
+    font-family: 'Retro Gaming', sans-serif;
+    position: relative;
+}
+
+#ct {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    background: radial-gradient(circle at 50% 45%, rgba(114, 48, 204, 0.14) 0%, rgba(10, 5, 20, 0.4) 55%, #020105 100%);
+}
+
+#ct canvas {
+    box-shadow:
+        0 0 42px rgba(124, 58, 237, 0.25),
+        0 18px 60px rgba(0, 0, 0, 0.85);
+    border-radius: 4px;
+    transition: opacity 0.35s ease, filter 0.35s ease;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+}
+
+.ct-aLoadingScreen {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    background: radial-gradient(circle at 50% 42%, #7231cc 0%, #4b1d8c 48%, #1d093b 100%);
+    color: #fff;
+    z-index: 10;
+    opacity: 1;
+    transition: opacity 0.55s cubic-bezier(0.22, 1, 0.36, 1), visibility 0.55s ease;
+}
+
+.ct-aLoadingScreen::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+    background-size: 28px 28px;
+    opacity: 0.35;
+    pointer-events: none;
+}
+
+.ct-aLoadingProgress {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 1.4rem;
+    font-style: italic;
+    padding: 1.5rem 2.5rem;
+    text-align: center;
+    min-width: 320px;
+}
+
+.ct-aLoadingLabel {
+    display: inline-block;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    font-family: 'Retro Gaming', sans-serif;
+    font-size: 1rem;
+    font-style: normal;
+    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.65);
+    animation: ctPulseLabel 1.5s ease-in-out infinite;
+}
+
+.ct-aLoadingBar {
+    content: '';
+    height: 0.35rem;
+    border-radius: 999px;
+    position: absolute;
+    background: linear-gradient(90deg, #c4b5fd, #ffffff, #f0abfc);
+    box-shadow: 0 0 14px rgba(232, 121, 249, 0.8), 0 0 4px #ffffff;
+    left: 0;
+    bottom: 0;
+    transition: width 0.45s cubic-bezier(0.31, 0.59, 0.29, 1);
+}
+
+.ct-aMadeWithImage {
+    margin-bottom: 1.25rem;
+    filter: drop-shadow(0 6px 24px rgba(0, 0, 0, 0.45));
+    animation: ctFloatLogo 2.8s ease-in-out infinite;
+}
+
+.ct-aMadeWithImage svg {
+    width: min(30vw, 320px);
+    height: auto;
+}
+
+.ct-aLoadingScreen.hidden {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+@keyframes ctPulseLabel {
+    0%, 100% { opacity: 0.72; }
+    50% { opacity: 1; }
+}
+
+@keyframes ctFloatLogo {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-6px); }
+}
+
+@font-face {
+    font-family: alagard;
+    src: url(fonts/f79MhM4HRTJDj4h.ttf.woff) format('woff'), url(fonts/f79MhM4HRTJDj4h.ttf) format('truetype');
+}
+
+@font-face {
+    font-family: 'Retro Gaming';
+    src: url(fonts/fhz3jdkRWWBcNPP.ttf.woff) format('woff'), url(fonts/fhz3jdkRWWBcNPP.ttf) format('truetype');
+}
