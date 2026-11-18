@@ -255,7 +255,11 @@
             bloomFilter: null,
             godrayFilter: null,
             rgbSplitFilter: null,
-            rgbSplitAmount: 0
+            rgbSplitAmount: 0,
+            mobileActive: false,
+            mobilePortrait: false,
+            sprintLocked: false,
+            pendingCanvasTap: null
         };
 
         function showScreenBanner(msg, colorHex, durationFrames) {
@@ -610,9 +614,23 @@
                         this.pos -= 1;
                     }
 
-                    // Mouse hover & click on original Play / Options / Exit regions
+                    // Mouse hover/click & direct mobile tap on original Play / Options / Exit regions
                     let mouseClickedItem = false;
-                    if (ct.mouse) {
+                    if (state.pendingCanvasTap && !state.pendingCanvasTap.menuConsumed) {
+                        const tap = state.pendingCanvasTap;
+                        let tappedItem = 0;
+                        if (tap.uiX >= 20 && tap.uiX <= 380) {
+                            if (tap.uiY >= 280 && tap.uiY <= 405) tappedItem = 1;
+                            else if (tap.uiY >= 415 && tap.uiY <= 525) tappedItem = 2;
+                            else if (tap.uiY >= 550 && tap.uiY <= 670) tappedItem = 3;
+                        }
+                        if (tappedItem > 0) {
+                            tap.menuConsumed = true;
+                            this.pos = tappedItem;
+                            mouseClickedItem = true;
+                        }
+                    }
+                    if (!mouseClickedItem && ct.mouse) {
                         const mx = ct.mouse.xui !== undefined ? ct.mouse.xui : ct.mouse.x;
                         const my = ct.mouse.yui !== undefined ? ct.mouse.yui : ct.mouse.y;
                         const moved = Math.abs((ct.mouse.x || 0) - (ct.mouse.xprev || 0)) > 0.5 ||
@@ -753,6 +771,12 @@
                         if (this.timerMorte >= 14) {
                             ct.rooms.switch('Tela Morte');
                         }
+                    }
+
+                    // Ensure Sprint Lock / held Acel persists across room transitions
+                    if (this.controlavel && ct.actions.Acel && ct.actions.Acel.down && this.velocidade < 12) {
+                        this.velocidade = 12;
+                        this.animationSpeed = 12 / 60;
                     }
 
                     // Fix aiming jam: if neither Up nor Down is held, ensure horizontal aim is restored cleanly
@@ -1303,15 +1327,67 @@
                     this.addChild(titleTxt, descTxt, hintTxt);
                     this.__titleTxt = titleTxt;
                     this.__descTxt = descTxt;
+                    this.__hintTxt = hintTxt;
+                    this.__openFrames = 0;
                 };
 
                 const origStep = tmpl.onStep;
                 tmpl.onStep = function () {
+                    this.__openFrames = (this.__openFrames || 0) + (ct.delta || 1);
                     // Keep modal anchored to camera if camera drifted
                     if (ct.camera) {
                         this.x = ct.camera.x - 640;
                         this.y = ct.camera.y - 360;
                     }
+
+                    // Direct touch / click support on the 10 spell cards and bottom action labels
+                    if (this.__openFrames > 6 && state.pendingCanvasTap && state.pendingCanvasTap.modalConsumed !== true) {
+                        const tap = state.pendingCanvasTap;
+                        let matchedSlot = 0;
+                        for (let s = 0; s < 10; s++) {
+                            const scx = slotColsX[s % 5];
+                            const scy = slotRowsY[s >= 5 ? 1 : 0];
+                            if (Math.abs(tap.uiX - scx) <= 68 && Math.abs(tap.uiY - scy) <= 72) {
+                                matchedSlot = s + 1;
+                                break;
+                            }
+                        }
+                        if (matchedSlot > 0) {
+                            tap.modalConsumed = true;
+                            if (this.pos === matchedSlot) {
+                                window.arma = matchedSlot;
+                                state.savedArma = matchedSlot;
+                                this.kill = true;
+                                window.parototal = true;
+                                window.menuskillaberto = false;
+                                const sCopy = ct.templates.list.selecionado && ct.templates.list.selecionado[0];
+                                if (sCopy) sCopy.kill = true;
+                                return;
+                            }
+                            this.pos = matchedSlot;
+                        } else if (tap.uiY >= 648 && tap.uiY <= 715) {
+                            if (tap.uiX >= 450 && tap.uiX <= 655) {
+                                tap.modalConsumed = true;
+                                window.arma = this.pos || 1;
+                                state.savedArma = window.arma;
+                                this.kill = true;
+                                window.parototal = true;
+                                window.menuskillaberto = false;
+                                const sCopy = ct.templates.list.selecionado && ct.templates.list.selecionado[0];
+                                if (sCopy) sCopy.kill = true;
+                                return;
+                            } else if (tap.uiX >= 665 && tap.uiX <= 865) {
+                                tap.modalConsumed = true;
+                                this.kill = true;
+                                window.parototal = true;
+                                window.menuskillaberto = false;
+                                const sCopy = ct.templates.list.selecionado && ct.templates.list.selecionado[0];
+                                if (sCopy) sCopy.kill = true;
+                                return;
+                            }
+                        }
+                    }
+
                     origStep.apply(this, arguments);
 
                     const sel = ct.templates.list.selecionado && ct.templates.list.selecionado[0];
@@ -1338,13 +1414,19 @@
                     if (this.__descTxt) {
                         this.__descTxt.text = info.desc;
                     }
+                    if (this.__hintTxt) {
+                        this.__hintTxt.text = state.mobileActive
+                            ? '[TOQUE 2x NA CARTA]      [ ✓ EQUIPAR ]      [ ✕ FECHAR ]'
+                            : '[SETAS] Navegar    [ENTER] Equipar    [ESC] Fechar';
+                        this.__hintTxt.style.fill = state.mobileActive ? '#fde68a' : '#94a3b8';
+                    }
                     if (this.kill && typeof window.arma === 'number') {
                         state.savedArma = window.arma;
                     }
                 };
             });
 
-            // L. coiso_de_escolher ("Escolha Um!" [4]): fix 60fps sprite leak & empty Enter handler!
+            // L. coiso_de_escolher ("Escolha Um!" [4]): fix 60fps sprite leak, Enter handler & direct touch support!
             patchTemplate('coiso_de_escolher', (tmpl) => {
                 tmpl.onCreate = function () {
                     this.pos = 1;
@@ -1423,6 +1505,7 @@
                     this.addChild(titleTxt, descTxt, hintTxt);
                     this.__titleTxt = titleTxt;
                     this.__descTxt = descTxt;
+                    this.__hintTxt = hintTxt;
                     this.__openFrames = 0;
                 };
 
@@ -1440,6 +1523,38 @@
                     }
                     if (ct.actions.Dir.pressed && this.pos < 3) {
                         this.pos += 1;
+                    }
+
+                    let tapConfirm = false;
+                    let tapCancel = false;
+                    if (this.__openFrames > 8 && state.pendingCanvasTap && state.pendingCanvasTap.modalConsumed !== true) {
+                        const tap = state.pendingCanvasTap;
+                        const cardCentersX = [229, 637, 1048];
+                        let hitCard = 0;
+                        if (tap.uiY >= 245 && tap.uiY <= 575) {
+                            for (let c = 0; c < 3; c++) {
+                                if (Math.abs(tap.uiX - cardCentersX[c]) <= 155) {
+                                    hitCard = c + 1;
+                                    break;
+                                }
+                            }
+                        }
+                        if (hitCard > 0) {
+                            tap.modalConsumed = true;
+                            if (this.pos === hitCard) {
+                                tapConfirm = true;
+                            } else {
+                                this.pos = hitCard;
+                            }
+                        } else if (tap.uiY >= 645 && tap.uiY <= 715) {
+                            if (tap.uiX >= 420 && tap.uiX <= 655) {
+                                tap.modalConsumed = true;
+                                tapConfirm = true;
+                            } else if (tap.uiX >= 665 && tap.uiX <= 885) {
+                                tap.modalConsumed = true;
+                                tapCancel = true;
+                            }
+                        }
                     }
 
                     // Position SELECIONADO frame over active card
@@ -1462,8 +1577,14 @@
                     const info = WEAPON_INFO[chosenWeapon] || WEAPON_INFO[1];
                     if (this.__titleTxt) this.__titleTxt.text = info.name;
                     if (this.__descTxt) this.__descTxt.text = info.desc;
+                    if (this.__hintTxt) {
+                        this.__hintTxt.text = state.mobileActive
+                            ? '[TOQUE 2x NA CARTA]      [ ✓ CONFIRMAR ]      [ ✕ CANCELAR ]'
+                            : '[ESQ / DIR] Escolher Carta    [ENTER] Confirmar    [ESC] Cancelar';
+                        this.__hintTxt.style.fill = state.mobileActive ? '#fde68a' : '#a78bfa';
+                    }
 
-                    if (this.__openFrames > 8 && ct.actions.start.pressed) {
+                    if ((this.__openFrames > 8 && ct.actions.start.pressed) || tapConfirm) {
                         window.arma = chosenWeapon;
                         state.savedArma = chosenWeapon;
                         const hero = ct.templates.list.Hero && ct.templates.list.Hero[0];
@@ -1473,7 +1594,7 @@
                             spawnFloatingNumber(hero.x, hero.y - 52, info.name, '#fde68a', true);
                         }
                         this.kill = true;
-                    } else if (this.__openFrames > 8 && ct.actions.Esc.pressed) {
+                    } else if ((this.__openFrames > 8 && ct.actions.Esc.pressed) || tapCancel) {
                         this.kill = true;
                     }
                 };
@@ -1496,7 +1617,21 @@
                         window.fase = 'Andar 1';
                     }
                     let clicked = false;
-                    if (ct.mouse) {
+                    if (state.pendingCanvasTap && !state.pendingCanvasTap.deathConsumed) {
+                        const tap = state.pendingCanvasTap;
+                        if (tap.uiY >= 555 && tap.uiY <= 675) {
+                            if (tap.uiX >= 110 && tap.uiX <= 496) {
+                                tap.deathConsumed = true;
+                                this.pos = 1;
+                                clicked = true;
+                            } else if (tap.uiX >= 750 && tap.uiX <= 1136) {
+                                tap.deathConsumed = true;
+                                this.pos = 2;
+                                clicked = true;
+                            }
+                        }
+                    }
+                    if (!clicked && ct.mouse) {
                         const mx = ct.mouse.xui !== undefined ? ct.mouse.xui : ct.mouse.x;
                         const my = ct.mouse.yui !== undefined ? ct.mouse.yui : ct.mouse.y;
                         const moved = Math.abs((ct.mouse.x || 0) - (ct.mouse.xprev || 0)) > 0.5 ||
@@ -1971,7 +2106,13 @@
             const wInfo = WEAPON_INFO[curArma] || WEAPON_INFO[1];
             const viewW = (ct.camera && ct.camera.width) || DESIGN_W;
             h.weaponBadge.x = viewW - 22;
-            h.weaponBadge.text = `Magia: ${wInfo.name}\n[ESC] Grimório  [4] Cartas`;
+            if (state.mobileActive) {
+                h.weaponBadge.y = state.mobilePortrait ? 22 : 78;
+                h.weaponBadge.text = `Magia: ${wInfo.name}`;
+            } else {
+                h.weaponBadge.y = 22;
+                h.weaponBadge.text = `Magia: ${wInfo.name}\n[ESC] Grimório  [4] Cartas`;
+            }
         }
 
         // Sleek Boss Health Bar in 'Fase Boss'
@@ -2028,9 +2169,10 @@
             const curHp = Math.max(0, Math.min(maxHp, boss.vida));
             bh.lagHp += (curHp - bh.lagHp) * 0.08;
 
-            const barW = 360;
+            const isMobLand = Boolean(state.mobileActive && !state.mobilePortrait);
+            const barW = isMobLand ? 324 : 360;
             const barH = 14;
-            const cx = DESIGN_W / 2 + 80; // Shifted slightly right of HUD_vida_mana (which ends at x=475)
+            const cx = isMobLand ? 672 : (DESIGN_W / 2 + 80); // Sits cleanly between HUD_vida_mana (0..475) and top-right pills
             const topY = 44;
 
             bh.nameTxt.x = cx;
@@ -2604,7 +2746,714 @@
                     }
                 }
             }
+            updateMobileControllerState();
+            if (state.pendingCanvasTap) {
+                state.pendingCanvasTap.age = (state.pendingCanvasTap.age || 0) + 1;
+                if (state.pendingCanvasTap.age >= 2) {
+                    state.pendingCanvasTap = null;
+                }
+            }
         }
+
+        // ------------------------------------------------------------------
+        // 14. Responsive Mobile & Touchscreen Controller (Portrait & Landscape)
+        // ------------------------------------------------------------------
+        let updateMobileControllerState = function () {};
+
+        (function setupMobileControls() {
+            const ctRoot = document.getElementById('ct') || document.body;
+
+            // Register dedicated virtual gamepad channels on ct.actions so physical keyboard never conflicts
+            const vpadChannels = {
+                Left: { held: false, pulse: 0 },
+                Right: { held: false, pulse: 0 },
+                Up: { held: false, pulse: 0 },
+                Down: { held: false, pulse: 0 },
+                Jump: { held: false, pulse: 0 },
+                Shoot: { held: false, pulse: 0 },
+                Melee: { held: false, pulse: 0 },
+                Skill: { held: false, pulse: 0 },
+                Sprint: { held: false, pulse: 0 },
+                Start: { held: false, pulse: 0 },
+                Esc: { held: false, pulse: 0 },
+                Pot1: { held: false, pulse: 0 },
+                Pot2: { held: false, pulse: 0 },
+                Cards: { held: false, pulse: 0 }
+            };
+
+            const safeAddMethod = (actionName, code, mult) => {
+                const act = ct.actions && ct.actions[actionName];
+                if (act && typeof act.methodExists === 'function' && !act.methodExists(code)) {
+                    act.addMethod(code, mult !== undefined ? mult : 1);
+                }
+            };
+
+            safeAddMethod('MoveX', 'vpad.Left', -1);
+            safeAddMethod('MoveX', 'vpad.Right', 1);
+            safeAddMethod('Esq', 'vpad.Left', 1);
+            safeAddMethod('Dir', 'vpad.Right', 1);
+            safeAddMethod('Cima', 'vpad.Up', 1);
+            safeAddMethod('Baixo', 'vpad.Down', 1);
+            safeAddMethod('Pular', 'vpad.Jump', 1);
+            safeAddMethod('Atirar', 'vpad.Shoot', 1);
+            safeAddMethod('Melee', 'vpad.Melee', 1);
+            safeAddMethod('Skill', 'vpad.Skill', 1);
+            safeAddMethod('Acel', 'vpad.Sprint', 1);
+            safeAddMethod('start', 'vpad.Start', 1);
+            safeAddMethod('Esc', 'vpad.Esc', 1);
+            safeAddMethod('Trocar1', 'vpad.Pot1', 1);
+            safeAddMethod('um', 'vpad.Pot1', 1);
+            safeAddMethod('Trocar2', 'vpad.Pot2', 1);
+            safeAddMethod('dois', 'vpad.Pot2', 1);
+            safeAddMethod('Quatro', 'vpad.Cards', 1);
+            for (const ch of ['Start', 'Jump', 'Shoot', 'Melee', 'Skill', 'Esc']) {
+                safeAddMethod('Qualquer', 'vpad.' + ch, 1);
+            }
+
+            const pulseVpad = (chName, frames) => {
+                const ch = vpadChannels[chName];
+                if (!ch) return;
+                // Ensure a clean 0 -> 1 -> 0 transition even on rapid consecutive taps
+                if (ct.inputs && ct.inputs.registry['vpad.' + chName] && !ch.held) {
+                    ct.inputs.registry['vpad.' + chName] = 0;
+                }
+                ch.pulse = Math.max(ch.pulse, frames || 1);
+            };
+
+            // Flush virtual input channels synchronously right before ct.inputs.updateActions()
+            let shootHoldTicks = 0;
+            if (ct.inputs && !ct.inputs.__mobileHooked) {
+                ct.inputs.__mobileHooked = true;
+                const origUpdateActions = ct.inputs.updateActions.bind(ct.inputs);
+                ct.inputs.updateActions = function () {
+                    for (const key in vpadChannels) {
+                        const ch = vpadChannels[key];
+                        let val = ch.held ? 1 : 0;
+                        if (key === 'Shoot' && ch.held) {
+                            shootHoldTicks += 1;
+                            // Continuous spells (2 & 7) read Atirar.down; single-shot spells read Atirar.pressed
+                            const curA = typeof window.arma === 'number' ? window.arma : 1;
+                            if (curA !== 2 && curA !== 7 && shootHoldTicks > 10 && shootHoldTicks % 11 === 0) {
+                                val = 0;
+                            }
+                        } else if (key === 'Shoot') {
+                            shootHoldTicks = 0;
+                        }
+                        if (ch.pulse > 0) {
+                            val = 1;
+                            ch.pulse -= 1;
+                        }
+                        ct.inputs.registry['vpad.' + key] = val;
+                    }
+                    return origUpdateActions();
+                };
+            }
+
+            // Unlock Howler WebAudio on first mobile touch gesture
+            let audioUnlocked = false;
+            const unlockMobileAudio = () => {
+                if (audioUnlocked) return;
+                try {
+                    if (window.Howler && Howler.ctx && Howler.ctx.state === 'suspended') {
+                        Howler.ctx.resume();
+                    }
+                    audioUnlocked = true;
+                } catch (e) { /* ignore */ }
+            };
+
+            const haptic = (ms) => {
+                try {
+                    if (navigator.vibrate) navigator.vibrate(ms || 8);
+                } catch (e) { /* ignore */ }
+            };
+
+            // Build DOM UI inside #ct (stays visible inside browser Fullscreen!)
+            // Uses crisp inline SVGs so zero glyphs ever miss on Android/iOS/Linux fonts.
+            const root = document.createElement('div');
+            root.id = 'sc-mobile-root';
+            root.innerHTML = `
+                <div class="sc-top-bar">
+                    <button type="button" class="sc-pill sc-pill-hp" data-pill="hp" aria-label="Poção de Vida">
+                        <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M6 2h4v2l3 4v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8l3-4V2z" fill="#f43f5e" stroke="#fecdd3" stroke-width="1.3"/><path d="M5 1h6" stroke="#fde68a" stroke-width="1.6"/></svg>
+                        <span class="sc-hp-cnt">3</span>
+                    </button>
+                    <button type="button" class="sc-pill sc-pill-mp" data-pill="mp" aria-label="Elixir de Mana">
+                        <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 2C8 2 3.5 7.2 3.5 10.5a4.5 4.5 0 0 0 9 0C12.5 7.2 8 2 8 2z" fill="#38bdf8" stroke="#bae6fd" stroke-width="1.3"/></svg>
+                        <span class="sc-mp-cnt">3</span>
+                    </button>
+                    <button type="button" class="sc-pill" data-pill="grimorio" aria-label="Grimório de Magias">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 3.5C2 2.7 2.7 2 3.5 2H7c.6 0 1 .4 1 1v10.5c0-.5-.4-.8-1-.8H3.5A1.5 1.5 0 0 1 2 11.2V3.5zm12 0c0-.8-.7-1.5-1.5-1.5H9c-.6 0-1 .4-1 1v10.5c0-.5.4-.8 1-.8h3.5a1.5 1.5 0 0 0 1.5-1.5V3.5z" fill="#7c3aed" stroke="#e9d5ff" stroke-width="1.3"/></svg>
+                        <span class="sc-pill-txt">Magias</span>
+                    </button>
+                    <button type="button" class="sc-pill" data-pill="cartas" aria-label="Escolher Carta">
+                        <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><rect x="3" y="1.5" width="10" height="13" rx="1.6" fill="#4c1d95" stroke="#fde047" stroke-width="1.4"/><path d="M8 5l2.2 3L8 11 5.8 8 8 5z" fill="#fde047"/></svg>
+                        <span class="sc-pill-txt">Cartas</span>
+                    </button>
+                    <button type="button" class="sc-pill sc-pill-sprint" data-pill="sprint" aria-label="Alternar Corrida">
+                        <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M9.5 1.5L3.5 9h4l-1 5.5L12.5 7h-4l1-5.5z" fill="#fde047" stroke="#fef9c3" stroke-width="1"/></svg>
+                        <span class="sc-pill-txt">Correr</span>
+                    </button>
+                    <button type="button" class="sc-pill sc-pill-fs" data-pill="fullscreen" aria-label="Tela Cheia">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 6V2.5h3.5M14 6V2.5h-3.5M2 10v3.5h3.5M14 10v3.5h-3.5" stroke="#e9d5ff" stroke-width="1.8" stroke-linecap="square"/></svg>
+                    </button>
+                </div>
+                <div class="sc-deck">
+                    <button type="button" class="sc-ctx-btn" aria-label="Interagir">
+                        <span class="sc-ctx-lbl">⏎ ENTRAR</span>
+                    </button>
+                    <div class="sc-stick-zone">
+                        <div class="sc-stick-base">
+                            <span class="sc-stick-dir sc-dir-u">▲</span>
+                            <span class="sc-stick-dir sc-dir-d">▼</span>
+                            <span class="sc-stick-dir sc-dir-l">◀</span>
+                            <span class="sc-stick-dir sc-dir-r">▶</span>
+                            <div class="sc-stick-knob"></div>
+                        </div>
+                    </div>
+                    <div class="sc-actions-zone">
+                        <button type="button" class="sc-btn sc-btn-melee" data-vbtn="Melee" aria-label="Espada">
+                            <span class="sc-btn-icon"><svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M14.5 3.5L6.5 11.5M12 3.5h2.5V6M4.5 9.5l4 4M3.5 14.5l3-3" stroke="#ffe4e6" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+                            <span class="sc-btn-lbl">ESPADA</span>
+                        </button>
+                        <button type="button" class="sc-btn sc-btn-shoot" data-vbtn="Shoot" aria-label="Magia">
+                            <span class="sc-btn-icon"><svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2l2.1 4.9L16 9l-4.9 2.1L9 16l-2.1-4.9L2 9l4.9-2.1L9 2z" fill="#93c5fd" stroke="#eff6ff" stroke-width="1.1"/></svg></span>
+                            <span class="sc-btn-lbl">MAGIA</span>
+                        </button>
+                        <button type="button" class="sc-btn sc-btn-skill" data-vbtn="Skill" aria-label="Skill de Mana">
+                            <span class="sc-btn-icon"><svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="5" fill="#a855f7" fill-opacity="0.45" stroke="#f3e8ff" stroke-width="1.6"/><circle cx="9" cy="9" r="2.1" fill="#f5d0fe"/></svg></span>
+                            <span class="sc-btn-lbl">SKILL</span>
+                        </button>
+                        <button type="button" class="sc-btn sc-btn-jump" data-vbtn="Jump" aria-label="Pular">
+                            <span class="sc-btn-icon"><svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 3.5L14.5 11H11v3.5H7V11H3.5L9 3.5z" fill="#86efac" stroke="#dcfce7" stroke-width="1.1" stroke-linejoin="round"/></svg></span>
+                            <span class="sc-btn-lbl">PULAR</span>
+                        </button>
+                    </div>
+                </div>
+            `;
+            ctRoot.appendChild(root);
+
+            const hpCntEl = root.querySelector('.sc-hp-cnt');
+            const mpCntEl = root.querySelector('.sc-mp-cnt');
+            const sprintPillEl = root.querySelector('.sc-pill-sprint');
+            const ctxBtnEl = root.querySelector('.sc-ctx-btn');
+            const ctxLblEl = root.querySelector('.sc-ctx-lbl');
+            const stickZoneEl = root.querySelector('.sc-stick-zone');
+            const stickKnobEl = root.querySelector('.sc-stick-knob');
+            const dirU = root.querySelector('.sc-dir-u');
+            const dirD = root.querySelector('.sc-dir-d');
+            const dirL = root.querySelector('.sc-dir-l');
+            const dirR = root.querySelector('.sc-dir-r');
+            const actionsZoneEl = root.querySelector('.sc-actions-zone');
+            const actionBtnEls = Array.from(root.querySelectorAll('.sc-btn[data-vbtn]'));
+
+            // Prevent controller touches from bubbling to ct.pointer/ct.mouse on document
+            for (const evName of ['touchstart', 'touchmove', 'touchend', 'touchcancel', 'pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'mousedown']) {
+                root.addEventListener(evName, (ev) => {
+                    ev.stopPropagation();
+                }, { passive: false });
+            }
+
+            //Orientation & Mobile Mode Synchronization
+            const syncLayoutClasses = () => {
+                if (!state.mobileActive) return;
+                document.body.classList.add('sc-mobile-active');
+                const isPortrait = window.innerHeight > window.innerWidth * 1.12;
+                state.mobilePortrait = isPortrait;
+                document.body.classList.toggle('sc-portrait', isPortrait);
+                document.body.classList.toggle('sc-landscape', !isPortrait);
+                if (ct.fittoscreen) {
+                    try { ct.fittoscreen(); } catch (e) { /* ignore */ }
+                }
+            };
+
+            const enableMobileMode = () => {
+                if (state.mobileActive) return;
+                state.mobileActive = true;
+                syncLayoutClasses();
+            };
+
+            const isTouchDevice =
+                (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
+                /Android|iPhone|iPad|iPod|Mobile|CriOS|FxiOS/i.test(navigator.userAgent || '') ||
+                (navigator.maxTouchPoints > 0 && Math.min(window.innerWidth, window.innerHeight) <= 920);
+
+            if (isTouchDevice) {
+                enableMobileMode();
+            }
+
+            window.addEventListener('touchstart', () => {
+                unlockMobileAudio();
+                enableMobileMode();
+            }, { passive: true });
+
+            window.addEventListener('resize', syncLayoutClasses);
+            window.addEventListener('orientationchange', () => {
+                setTimeout(syncLayoutClasses, 80);
+                setTimeout(syncLayoutClasses, 280);
+            });
+
+            // Top Utility Pills
+            const toggleFullscreenLandscape = async () => {
+                try {
+                    const fsElem = document.fullscreenElement || document.webkitFullscreenElement;
+                    if (!fsElem) {
+                        const req = ctRoot.requestFullscreen || ctRoot.webkitRequestFullscreen || document.documentElement.requestFullscreen;
+                        if (req) {
+                            await req.call(ctRoot);
+                            if (screen.orientation && screen.orientation.lock) {
+                                screen.orientation.lock('landscape').catch(() => {});
+                            }
+                        } else {
+                            showScreenBanner('Gire o celular na horizontal para jogar em tela ampla!', '#fde68a', 140);
+                        }
+                    } else {
+                        const exit = document.exitFullscreen || document.webkitExitFullscreen;
+                        if (exit) await exit.call(document);
+                    }
+                } catch (e) {
+                    showScreenBanner('Gire o celular na horizontal para tela ampla!', '#fde68a', 130);
+                }
+                setTimeout(syncLayoutClasses, 120);
+            };
+
+            root.querySelectorAll('.sc-pill').forEach((pill) => {
+                const kind = pill.getAttribute('data-pill');
+                pill.addEventListener('pointerdown', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    unlockMobileAudio();
+                    haptic(8);
+                    pill.classList.add('is-pressed');
+                    if (kind === 'hp') {
+                        pulseVpad('Pot1', 2);
+                    } else if (kind === 'mp') {
+                        pulseVpad('Pot2', 2);
+                    } else if (kind === 'grimorio') {
+                        pulseVpad('Esc', 2);
+                    } else if (kind === 'cartas') {
+                        // Note: ct.js opens coiso_de_escolher on Quatro.released!
+                        // If a modal is already open, close it first; otherwise pulse Cards for 1 frame so next frame triggers .released!
+                        if (isFullscreenModalOpen()) {
+                            pulseVpad('Esc', 2);
+                        } else {
+                            pulseVpad('Cards', 1);
+                        }
+                    } else if (kind === 'sprint') {
+                        state.sprintLocked = !state.sprintLocked;
+                        pill.classList.toggle('is-locked', state.sprintLocked);
+                    } else if (kind === 'fullscreen') {
+                        toggleFullscreenLandscape();
+                    }
+                });
+                const clearPress = () => pill.classList.remove('is-pressed');
+                pill.addEventListener('pointerup', clearPress);
+                pill.addEventListener('pointercancel', clearPress);
+                pill.addEventListener('pointerleave', clearPress);
+            });
+
+            // Contextual Button (Enter Door / Advance Dialogue / Confirm Modal)
+            ctxBtnEl.addEventListener('pointerdown', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                unlockMobileAudio();
+                haptic(10);
+                ctxBtnEl.classList.add('is-pressed');
+                pulseVpad('Start', 2);
+            });
+            const clearCtx = () => ctxBtnEl.classList.remove('is-pressed');
+            ctxBtnEl.addEventListener('pointerup', clearCtx);
+            ctxBtnEl.addEventListener('pointercancel', clearCtx);
+
+            // Multi-Touch Virtual Analog Stick
+            let stickPointerId = null;
+            let stickAutoSprint = false;
+            let stickNormX = 0;
+            let stickNormY = 0;
+            let menuRepeatDir = '';
+            let menuRepeatTimer = 0;
+
+            const isMenuSteppingContext = () => {
+                const rName = ct.room && ct.room.name;
+                return rName === 'MainMenu' || rName === 'Tela Morte' || isFullscreenModalOpen();
+            };
+
+            const updateStickFromClient = (clientX, clientY) => {
+                const rect = stickZoneEl.getBoundingClientRect();
+                const cx = rect.left + rect.width / 2;
+                const cy = rect.top + rect.height / 2;
+                const maxR = Math.max(36, rect.width * 0.40);
+                const dx = clientX - cx;
+                const dy = clientY - cy;
+                const dist = Math.hypot(dx, dy);
+                const clamped = Math.min(dist, maxR);
+                const angle = Math.atan2(dy, dx);
+                const kx = dist > 0.5 ? Math.cos(angle) * clamped : 0;
+                const ky = dist > 0.5 ? Math.sin(angle) * clamped : 0;
+
+                stickKnobEl.style.transform = `translate3d(${kx.toFixed(1)}px, ${ky.toFixed(1)}px, 0)`;
+                stickNormX = kx / maxR;
+                stickNormY = ky / maxR;
+                stickAutoSprint = (dist / maxR) >= 0.82 && Math.abs(stickNormX) >= 0.45;
+            };
+
+            const resetStick = () => {
+                stickPointerId = null;
+                stickNormX = 0;
+                stickNormY = 0;
+                stickAutoSprint = false;
+                menuRepeatDir = '';
+                menuRepeatTimer = 0;
+                stickZoneEl.classList.remove('is-active');
+                stickKnobEl.style.transform = 'translate3d(0px, 0px, 0)';
+                vpadChannels.Left.held = false;
+                vpadChannels.Right.held = false;
+                vpadChannels.Up.held = false;
+                vpadChannels.Down.held = false;
+                dirU.classList.remove('is-lit');
+                dirD.classList.remove('is-lit');
+                dirL.classList.remove('is-lit');
+                dirR.classList.remove('is-lit');
+            };
+
+            stickZoneEl.addEventListener('pointerdown', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                unlockMobileAudio();
+                if (stickPointerId !== null) return;
+                stickPointerId = e.pointerId;
+                stickZoneEl.classList.add('is-active');
+                try { stickZoneEl.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+                updateStickFromClient(e.clientX, e.clientY);
+            });
+
+            stickZoneEl.addEventListener('pointermove', (e) => {
+                if (e.pointerId !== stickPointerId) return;
+                e.preventDefault();
+                e.stopPropagation();
+                updateStickFromClient(e.clientX, e.clientY);
+            });
+
+            const onStickEnd = (e) => {
+                if (e.pointerId !== stickPointerId) return;
+                e.preventDefault();
+                e.stopPropagation();
+                resetStick();
+            };
+            stickZoneEl.addEventListener('pointerup', onStickEnd);
+            stickZoneEl.addEventListener('pointercancel', onStickEnd);
+
+            // Multi-Touch Action Diamond (supports pressing Jump + Shoot simultaneously or sliding thumb!)
+            const activeActionPointers = new Map(); // pointerId -> vbtnName
+
+            const refreshHeldActionButtons = () => {
+                const heldSet = new Set(activeActionPointers.values());
+                for (const btn of actionBtnEls) {
+                    const vName = btn.getAttribute('data-vbtn');
+                    const isHeld = heldSet.has(vName);
+                    vpadChannels[vName].held = isHeld;
+                    btn.classList.toggle('is-pressed', isHeld);
+                }
+            };
+
+            const findActionButtonAt = (clientX, clientY) => {
+                let bestBtn = null;
+                let bestDist = Infinity;
+                for (const btn of actionBtnEls) {
+                    const r = btn.getBoundingClientRect();
+                    const bcx = r.left + r.width / 2;
+                    const bcy = r.top + r.height / 2;
+                    const d = Math.hypot(clientX - bcx, clientY - bcy);
+                    if (d <= r.width * 0.68 && d < bestDist) {
+                        bestDist = d;
+                        bestBtn = btn;
+                    }
+                }
+                return bestBtn;
+            };
+
+            actionsZoneEl.addEventListener('pointerdown', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                unlockMobileAudio();
+                const hit = findActionButtonAt(e.clientX, e.clientY);
+                if (!hit) return;
+                const vName = hit.getAttribute('data-vbtn');
+                activeActionPointers.set(e.pointerId, vName);
+                pulseVpad(vName, 1);
+                haptic(7);
+                try { actionsZoneEl.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+                refreshHeldActionButtons();
+            });
+
+            actionsZoneEl.addEventListener('pointermove', (e) => {
+                if (!activeActionPointers.has(e.pointerId)) return;
+                e.preventDefault();
+                e.stopPropagation();
+                const hit = findActionButtonAt(e.clientX, e.clientY);
+                if (hit) {
+                    const nextName = hit.getAttribute('data-vbtn');
+                    const prevName = activeActionPointers.get(e.pointerId);
+                    if (nextName !== prevName) {
+                        activeActionPointers.set(e.pointerId, nextName);
+                        pulseVpad(nextName, 1);
+                        haptic(5);
+                        refreshHeldActionButtons();
+                    }
+                }
+            });
+
+            const onActionPointerEnd = (e) => {
+                if (!activeActionPointers.has(e.pointerId)) return;
+                e.preventDefault();
+                e.stopPropagation();
+                activeActionPointers.delete(e.pointerId);
+                refreshHeldActionButtons();
+            };
+            actionsZoneEl.addEventListener('pointerup', onActionPointerEnd);
+            actionsZoneEl.addEventListener('pointercancel', onActionPointerEnd);
+
+            // Direct Canvas Tap Mapping (1280x720 UI space + World space)
+            const viewCanvas = app.view;
+            if (viewCanvas) {
+                const mapClientToCanvas = (clientX, clientY) => {
+                    const rect = viewCanvas.getBoundingClientRect();
+                    if (!rect.width || !rect.height) return null;
+                    const uiX = ((clientX - rect.left) / rect.width) * DESIGN_W;
+                    const uiY = ((clientY - rect.top) / rect.height) * DESIGN_H;
+                    const camLeft = ct.camera ? (ct.camera.x - DESIGN_W / 2) : 0;
+                    const camTop = ct.camera ? (ct.camera.y - DESIGN_H / 2) : 0;
+                    return {
+                        uiX,
+                        uiY,
+                        worldX: camLeft + uiX,
+                        worldY: camTop + uiY
+                    };
+                };
+
+                const syncCtMouseFromPoint = (pt) => {
+                    if (!pt || !ct.mouse) return;
+                    try {
+                        ct.mouse.xui = pt.uiX;
+                        ct.mouse.yui = pt.uiY;
+                    } catch (err) { /* ignore */ }
+                };
+
+                viewCanvas.addEventListener('pointermove', (e) => {
+                    const pt = mapClientToCanvas(e.clientX, e.clientY);
+                    syncCtMouseFromPoint(pt);
+                }, { passive: true });
+
+                viewCanvas.addEventListener('pointerdown', (e) => {
+                    unlockMobileAudio();
+                    const pt = mapClientToCanvas(e.clientX, e.clientY);
+                    if (!pt) return;
+                    syncCtMouseFromPoint(pt);
+                    state.pendingCanvasTap = { uiX: pt.uiX, uiY: pt.uiY, worldX: pt.worldX, worldY: pt.worldY, age: 0 };
+
+                    const rName = ct.room ? ct.room.name : '';
+
+                    // 1. If teclado_tuto or caixa_de_aviso_sepa is open, tap anywhere closes/advances it
+                    const tutoOpen = ct.templates.list.teclado_tuto && ct.templates.list.teclado_tuto.some(t => t && !t.kill);
+                    if (tutoOpen) {
+                        for (const t of ct.templates.list.teclado_tuto) {
+                            if (t && !t.kill) {
+                                t.kill = true;
+                                t.visible = false;
+                            }
+                        }
+                        window.hudvisivel = true;
+                        if (ct.room) ct.room.apareceu = false;
+                        return;
+                    }
+
+                    const avisoOpen = ct.templates.list.caixa_de_aviso_sepa && ct.templates.list.caixa_de_aviso_sepa.some(a => a && !a.kill);
+                    if (avisoOpen) {
+                        pulseVpad('Start', 2);
+                        return;
+                    }
+
+                    // 2. Skip-tutorial dialog in Início ('caixa_de_escolha_test')
+                    const escolhaBox = ct.templates.list.caixa_de_escolha_test && ct.templates.list.caixa_de_escolha_test.find(b => b && !b.kill);
+                    if (escolhaBox) {
+                        if (pt.uiY >= 330 && pt.uiY <= 475) {
+                            if (pt.uiX >= 250 && pt.uiX <= 605) {
+                                window.controlavel = true;
+                                window.parototal = true;
+                                if (ct.room) {
+                                    ct.room.mostro = false;
+                                    ct.room.delay = true;
+                                }
+                                escolhaBox.kill = true;
+                                return;
+                            } else if (pt.uiX >= 685 && pt.uiX <= 1040) {
+                                window.controlavel = true;
+                                window.parototal = true;
+                                ct.rooms.switch('Andar 1');
+                                return;
+                            }
+                        }
+                    }
+
+                    // 3. Crow dialogue ('Corvo' / 'Caixa_de_texto') in Tutorial
+                    const caixaTexto = ct.templates.list.Caixa_de_texto && ct.templates.list.Caixa_de_texto.some(c => c && !c.kill && c.visible !== false);
+                    if (caixaTexto) {
+                        pulseVpad('Start', 2);
+                        return;
+                    }
+
+                    // 4. Gameplay HUD direct taps (Red Potion, Blue Elixir, Top-Right Spell Badge, and Doors)
+                    if (rName !== 'MainMenu' && rName !== 'Tela Morte' && !isFullscreenModalOpen()) {
+                        if (pt.uiY >= 12 && pt.uiY <= 96) {
+                            if (pt.uiX >= 155 && pt.uiX <= 255) {
+                                pulseVpad('Pot1', 2);
+                                haptic(8);
+                                return;
+                            } else if (pt.uiX > 255 && pt.uiX <= 368) {
+                                pulseVpad('Pot2', 2);
+                                haptic(8);
+                                return;
+                            } else if (pt.uiX >= 980 && pt.uiY <= 92) {
+                                pulseVpad('Esc', 2);
+                                haptic(8);
+                                return;
+                            }
+                        }
+
+                        // Direct tap on an overlapping door enters it!
+                        const hero = ct.templates.list.Hero && ct.templates.list.Hero[0];
+                        if (hero && !hero.kill) {
+                            for (const pName of PORTAL_TEMPLATES) {
+                                const pList = ct.templates.list[pName];
+                                if (!pList) continue;
+                                for (const door of pList) {
+                                    if (door && !door.kill && ct.place.meet(door, door.x, door.y, 'Hero')) {
+                                        if (Math.abs(pt.worldX - door.x) <= 130 && Math.abs(pt.worldY - door.y) <= 165) {
+                                            pulseVpad('Start', 2);
+                                            haptic(10);
+                                            return;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }, { passive: true });
+            }
+
+            // Per-frame mobile state sync (analog stick -> digital actions, potion counts, contextual prompt)
+            updateMobileControllerState = function () {
+                if (!state.mobileActive) return;
+
+                const rName = ct.room ? ct.room.name : '';
+                const modalOpen = isFullscreenModalOpen();
+
+                // In Landscape, hide combat stick/diamond on MainMenu, Tela Morte, and Fullscreen Modals so screen is 100% clear
+                const cleanLandscapeScreen = !state.mobilePortrait && (rName === 'MainMenu' || rName === 'Tela Morte' || modalOpen);
+                document.body.classList.toggle('sc-menu-clean', cleanLandscapeScreen);
+
+                // Sync live potion & elixir counts
+                const pCount = typeof window.pocao === 'number' ? window.pocao : 3;
+                const eCount = typeof window.elixir === 'number' ? window.elixir : 3;
+                if (hpCntEl.textContent !== String(pCount)) hpCntEl.textContent = String(pCount);
+                if (mpCntEl.textContent !== String(eCount)) mpCntEl.textContent = String(eCount);
+
+                // Sprint state (locked toggle OR full outer-ring stick deflection)
+                const shouldSprint = Boolean(state.sprintLocked || stickAutoSprint);
+                vpadChannels.Sprint.held = shouldSprint;
+                sprintPillEl.classList.toggle('is-locked', state.sprintLocked);
+
+                // Translate stick vector to directional inputs
+                const inMenu = isMenuSteppingContext();
+                const wantL = stickNormX < -0.24 && !(Math.abs(stickNormY) > 0.78 && Math.abs(stickNormX) < 0.34);
+                const wantR = stickNormX > 0.24 && !(Math.abs(stickNormY) > 0.78 && Math.abs(stickNormX) < 0.34);
+                const wantU = stickNormY < -0.46;
+                const wantD = stickNormY > 0.46;
+
+                dirL.classList.toggle('is-lit', wantL);
+                dirR.classList.toggle('is-lit', wantR);
+                dirU.classList.toggle('is-lit', wantU);
+                dirD.classList.toggle('is-lit', wantD);
+
+                if (inMenu) {
+                    vpadChannels.Left.held = false;
+                    vpadChannels.Right.held = false;
+                    vpadChannels.Up.held = false;
+                    vpadChannels.Down.held = false;
+
+                    let domDir = '';
+                    if (Math.abs(stickNormX) > Math.abs(stickNormY)) {
+                        if (stickNormX < -0.35) domDir = 'Left';
+                        else if (stickNormX > 0.35) domDir = 'Right';
+                    } else {
+                        if (stickNormY < -0.35) domDir = 'Up';
+                        else if (stickNormY > 0.35) domDir = 'Down';
+                    }
+
+                    if (!domDir) {
+                        menuRepeatDir = '';
+                        menuRepeatTimer = 0;
+                    } else if (domDir !== menuRepeatDir) {
+                        menuRepeatDir = domDir;
+                        menuRepeatTimer = 15;
+                        pulseVpad(domDir, 1);
+                        haptic(5);
+                    } else {
+                        menuRepeatTimer -= ct.delta || 1;
+                        if (menuRepeatTimer <= 0) {
+                            menuRepeatTimer = 9;
+                            pulseVpad(domDir, 1);
+                            haptic(4);
+                        }
+                    }
+                } else {
+                    menuRepeatDir = '';
+                    vpadChannels.Left.held = wantL;
+                    vpadChannels.Right.held = wantR;
+                    vpadChannels.Up.held = wantU;
+                    vpadChannels.Down.held = wantD;
+                }
+
+                // Contextual golden action button detection (Doors, Dialogues, Menus in Portrait)
+                let ctxLabel = '';
+                if (modalOpen) {
+                    if (state.mobilePortrait) ctxLabel = '✓ CONFIRMAR';
+                } else if (rName === 'MainMenu' || rName === 'Tela Morte') {
+                    if (state.mobilePortrait) ctxLabel = '✓ CONFIRMAR';
+                } else {
+                    const hero = ct.templates.list.Hero && ct.templates.list.Hero[0];
+                    if (hero && !hero.kill) {
+                        for (const pName of PORTAL_TEMPLATES) {
+                            const pList = ct.templates.list[pName];
+                            if (!pList) continue;
+                            for (const door of pList) {
+                                if (door && !door.kill && ct.place.meet(door, door.x, door.y, 'Hero')) {
+                                    ctxLabel = (pName === 'Porta_Sair' || pName === 'Porta_Sair_tuto' || pName === 'Porta_Fim')
+                                        ? '⏎ SAIR DA FASE'
+                                        : '⏎ ENTRAR';
+                                    break;
+                                }
+                            }
+                            if (ctxLabel) break;
+                        }
+                    }
+                    if (!ctxLabel) {
+                        const hasSpeech =
+                            (ct.templates.list.Caixa_de_texto && ct.templates.list.Caixa_de_texto.some(c => c && !c.kill && c.visible !== false)) ||
+                            (ct.templates.list.caixa_de_aviso_sepa && ct.templates.list.caixa_de_aviso_sepa.some(a => a && !a.kill));
+                        if (hasSpeech) {
+                            ctxLabel = '✓ AVANÇAR';
+                        }
+                    }
+                }
+
+                if (ctxLabel) {
+                    if (ctxLblEl.textContent !== ctxLabel) ctxLblEl.textContent = ctxLabel;
+                    ctxBtnEl.classList.add('is-visible');
+                } else {
+                    ctxBtnEl.classList.remove('is-visible');
+                }
+            };
+        })();
 
         app.ticker.add(updateVisualSystems);
 
